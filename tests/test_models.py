@@ -27,7 +27,7 @@ import os
 import logging
 import unittest
 from decimal import Decimal
-from service.models import Product, Category, db
+from service.models import Product, Category, db,DataValidationError
 from service import app
 from tests.factories import ProductFactory
 
@@ -195,4 +195,92 @@ class TestProductModel(unittest.TestCase):
     
 
     
+    def test_update_with_no_id(self):
+         """It should raise DataValidationError when updating a Product with no ID"""
+         product = ProductFactory()  # Crée un produit sans le sauvegarder dans la base
+         product.id = None  # Assure que l'ID est vide
+         with self.assertRaises(DataValidationError) as context:
+             product.update()
+         self.assertEqual(str(context.exception), "Update called with empty ID field")
+
+    def test_deserialize_invalid_available_type(self):
+         """It should raise DataValidationError for invalid type in available field"""
+         product = Product()
+         invalid_data = {
+             "name": "Test Product",
+             "description": "A test description",
+             "price": 12.50,
+             "available": "yes",  # Mauvais type: devrait être un booléen
+             "category": "CLOTHS"
+         }
+         with self.assertRaises(DataValidationError) as context:
+             product.deserialize(invalid_data)
+         self.assertIn("Invalid type for boolean [available]", str(context.exception))
+   
+    def deserialize(self, data: dict):
+         """Deserializes a Product from a dictionary"""
+         try:
+             for key, value in data.items():
+                 if key not in ["id", "name", "description", "price", "available", "category"]:
+                     raise AttributeError(f"Invalid attribute: {key}")
+                 if key == "price" and not isinstance(value, (float, int, Decimal)):
+                     raise DataValidationError(
+                         "Invalid type for numeric [price]: " + str(type(value))
+                     )
+                 if key == "available" and not isinstance(value, bool):
+                     raise DataValidationError(
+                         "Invalid type for boolean [available]: " + str(type(value))
+                     )
+                 if key == "category":
+                     value = getattr(Category, value)
+                 setattr(self, key, value)
+             return self
+         except AttributeError as error:
+             raise DataValidationError("Invalid attribute: " + error.args[0]) from error
+    
+    def test_deserialize_invalid_type(self):
+        """It should raise DataValidationError for invalid data type"""
+        invalid_data = None  # Not a dictionary
+        product = ProductFactory()
+        with self.assertRaises(DataValidationError) as context:
+            product.deserialize(invalid_data)
+        self.assertIn(
+            str(context.exception),
+            "Invalid product: body of request contained bad or no data 'NoneType' object is not iterable",
+        )
+
+        invalid_data = "This is a string, not a dict"  # Also invalid
+        with self.assertRaises(DataValidationError) as context:
+            product.deserialize(invalid_data)
+        self.assertIn("Invalid product: body of request contained bad or no data", str(context.exception))
         
+   
+    
+    def test_find_by_price(self):
+         """It should find Products by price"""
+         products = ProductFactory.create_batch(5)
+         for product in products:
+             product.create()
+
+         # Test with exact Decimal value
+         target_product = products[0]
+         found = Product.find_by_price(target_product.price)
+         self.assertEqual(found.count(), 1)
+         self.assertEqual(found.first().price, target_product.price)
+
+         # Test with string representation of the price
+         found = Product.find_by_price(str(target_product.price))
+         self.assertEqual(found.count(), 1)
+         self.assertEqual(found.first().price, target_product.price)
+
+         # Test with a float value
+         found = Product.find_by_price(float(target_product.price))
+         self.assertEqual(found.count(), 1)
+         self.assertEqual(found.first().price, target_product.price)
+
+         # Test with a non-matching price
+         found = Product.find_by_price(Decimal("9999.99"))
+         self.assertEqual(found.count(), 0)
+
+        
+    

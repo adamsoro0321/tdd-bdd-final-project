@@ -147,7 +147,7 @@ class Product(db.Model):
             raise DataValidationError("Invalid product: missing " + error.args[0]) from error
         except TypeError as error:
             raise DataValidationError(
-                "Invalid product: body of request contained bad or no data " + str(error)
+                "Invalid product: body of request contained bad or no data " 
             ) from error
         return self
 
